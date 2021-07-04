@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset='utf-8' />
+    <title>Isochrone Map - Hawkers nearby?</title>
+    <meta name='viewport'
+        content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <!--import bulma-->
+    <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bulma@0.8.2/css/bulma.min.css">
+    <script defer
+        src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+    <!-- Import Mapbox GL JS  -->
+    <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v1.10.0/mapbox-gl.js'></script>
+    <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v1.10.0/mapbox-gl.css'
+        rel='stylesheet' />
+    <!-- Import Assembly -->
+    <link href='https://api.mapbox.com/mapbox-assembly/v0.23.2/assembly.min.css'
+        rel='stylesheet'>
+    <script src='https://api.mapbox.com/mapbox-assembly/v0.23.2/assembly.js'></script>
+    <!-- Import jQuery -->
+    <script src='https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js'></script>
+
+
+    <!--import turf-->
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@5/turf.min.js"></script>
+
+
+    <style>
+        html {
+            background-color: #323432;
+        }
+
+
+        .custom {
+            height: 100%;
+            overflow: auto;
+            padding-bottom: 1em;
+            background: #323432;
+        }
+
+        .custom .toggle-option {
+            display: block;
+            border-bottom: 1px solid #eee;
+            padding: 1em;
+            text-decoration: none;
+            color: #c2e2c2;
+            text-align: center;
+        }
+
+        .columns.is-fullheight {
+            min-height: calc(100vh - .25rem);
+            max-height: calc(100vh - .25rem);
+            height: calc(100vh - .25rem);
+            display: flex;
+            flex-direction: row;
+            justify-content: stretch;
+        }
+
+        .columns.is-fullheight .column {
+            overflow-y: auto;
+        }
+
+        .menu-label {
+            text-align: center;
+        }
+
+        /* Marker tweaks */
+        .mapboxgl-popup-close-button {
+            display: none;
+        }
+
+        .mapboxgl-popup-content {
+            font: 400 15px/22px 'Source Sans Pro', 'Helvetica Neue', Sans-serif;
+            padding: 0;
+            width: 350px;
+        }
+
+        .mapboxgl-popup-content-wrapper {
+            padding: 1%;
+        }
+
+
+
+        .mapboxgl-popup-content div {
+            padding: 5px;
+        }
+
+        .mapboxgl-container .leaflet-marker-icon {
+            cursor: pointer;
+        }
+
+        .mapboxgl-popup-anchor-top>.mapboxgl-popup-content {
+            margin-top: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!--Import geocoder styles and script-->
+    <script
+        src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.5.1/mapbox-gl-geocoder.min.js"></script>
+    <link rel="stylesheet"
+        href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.5.1/mapbox-gl-geocoder.css"
+        type="text/css" />
+    <!-- Promise polyfill script required to use Mapbox GL Geocoder in IE 11 -->
+    <script src="https://cdn.jsdelivr.net/npm/es6-promise@4/dist/es6-promise.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/es6-promise@4/dist/es6-promise.auto.min.js"></script>
+    <div class='columns is-fullheight is-gapless'>
+        <!-- Create a container for the map -->
+        <div id='map'
+            class="map column"></div>
+    </div>
+
+
+    <script>
+        // Add your Mapbox access token
+        mapboxgl.accessToken = 'pk.eyJ1IjoiY2FwdG1vbW8iLCJhIjoiY2thMnBtZTBhMGNteTNucG53Y3g2Y3gyNyJ9.Z4_j43zWekpkn2lX9gmoxQ';
+        // Basic map instance
+        const map = new mapboxgl.Map({
+            container: "map",
+            style: "mapbox://styles/mapbox/dark-v10?optimize=true",
+            center: [103.8163, 1.3426],
+            zoom: 13
+        });
+        const geocoder = new MapboxGeocoder({
+            accessToken: mapboxgl.accessToken,
+            countries: 'sg',
+            mapboxgl: mapboxgl
+        });
+        map.addControl(geocoder, "top-right");
+
+        // Set up an object to track app state and data
+        const isoAppData = {
+            params: {
+                urlBase: "https://api.mapbox.com/isochrone/v1/mapbox/",
+                profile: "walking/",
+                minutes: 30,
+                category: "cafe"
+            },
+            origins: {
+                a: [103.8163, 1.3426]
+            },
+            isos: {
+                a: {}
+            },
+            features: {
+                a: {}
+            }
+        };
+        // Get a single isochrone for a given position and return the GeoJSON
+        const getIso = function (position) {
+            // Build the URL for the isochrone API
+            const isoUrl = isoAppData.params.urlBase + isoAppData.params.profile + position.join(",") + "?contours_minutes=" +
+                isoAppData.params.minutes + "&polygons=true&access_token=" + mapboxgl.accessToken;
+
+            // Return the GeoJSON
+            return fetch(isoUrl).then(res => res.json());
+        };
+
+        const closePopups = function () {
+            var popUps = document.getElementsByClassName('mapboxgl-popup');
+            /** Check if there is already a popup on the map and if so, remove it */
+            if (popUps[0]) popUps[0].remove();
+        };
+        //update draggable iso;
+        const updateDraggableIso = function (position) {
+            getIso(position)
+                .then(result => {
+                    isoAppData.isos.a = result;
+                    map.getSource('draggable').setData(isoAppData.isos.a);
+                    highlightNearest(result.features[0]);
+                })
+        }
+
+        const highlightNearest = function (features) {
+            const isoBuffA = turf.buffer(features, 0.001);
+            const newSource = turf.featureCollection([])
+            fetchJson(storeGeo)
+                .then(result => {
+
+                    result.features.forEach(function (store, i) {
+                        let point = turf.point([store.geometry.coordinates[0], store.geometry.coordinates[1]]);
+                        if (turf.intersect(point, isoBuffA)) {
+                            newSource.features.push(store);
+                        }
+                    });
+                    map.getSource('nearest').setData(newSource);
+                })
+        }
+        const storeGeo = 'https://raw.githubusercontent.com/datascapesg/help-our-hawkers/main/stalls.json';
+
+        //set up for draggables
+        const setUpDraggables = function () {
+            map.addSource("draggable", {
+                type: "geojson",
+                data: {
+                    type: "FeatureCollection",
+                    features: [
+                    ]
+                }
+            });
+
+            map.addLayer({
+                "id": "draggable",
+                "type": "fill",
+                "source": "draggable",
+                "layout": {},
+                "paint": {
+                    "fill-color": "lightblue",
+                    "fill-opacity": 0.3
+                }
+            }, "poi-label");
+
+            updateDraggableIso(isoAppData.origins.a)
+        };
+
+
+
+
+        const originA = new mapboxgl.Marker({
+            draggable: true
+        })
+            .setLngLat(isoAppData.origins.a)
+            .addTo(map);
+        const setUpDraggableMarker = function () {
+            function onDragEndA() {
+                closePopups();
+                const lngLat = originA.getLngLat();
+                isoAppData.origins.a = [lngLat.lng, lngLat.lat];
+                updateDraggableIso(isoAppData.origins.a);
+                //highlightNearest(isoAppData.isos.a.features[0])
+            }
+
+
+            //highlightNearest(isoAppData.isos.a.features[0])
+            originA.on("dragend", onDragEndA);
+        }
+
+        function logResult(result) {
+            console.log(result);
+        }
+
+        function logError(error) {
+            console.log('Looks like there was a problem: \n', error);
+        }
+
+        function validateResponse(response) {
+            if (!response.ok) {
+                throw Error(response.statusText);
+            }
+            return response;
+        }
+
+        function readResponseAsJSON(response) {
+            return response.json();
+        }
+        const fetchJson = function getJson(url) {
+            return fetch(url)
+                .then(validateResponse)
+                .then(readResponseAsJSON)
+                .catch(logError);
+
+        };
+
+        function processStore(store) {
+            if (store.hours === 'null') {
+                store.hours = 'Not provided'
+            }
+            if (store.contributor === 'null') {
+                store.contributor = 'Anonymous'
+            }
+            if (store.details === 'null') {
+                store.details = 'Not provided'
+            }
+
+        }
+        function constructPopup(store) {
+
+            processStore(store);
+
+            let template = `
+            <div class="card">
+  <header class="card-header">
+    <span class="card-header-title">
+      <p class="title is-4">${store.name}</p>
+    <span>
+  </header>
+  <div class="card-content">
+    <p class="subtitle">
+        Contributed by ${store.contributor}
+    </p>
+    <div class="content">
+        <div class="field">
+            <label class="label">Address</label>
+            <span class="has-text">${store.address}</span>
+        </div>
+
+        <div class="field">
+            <label class="label">Opening hours</label>
+            <span class="has-text"><p><i class="fa fa-clock fa-fw" aria-hidden="true"> </i> &nbsp; ${store.hours}</p></span>
+        </div>
+        <div class="field">
+            <label class="label">Recommendation</label>
+            <span class="has-text">${store.recommendations}</span>
+        </div>
+        <div class="field">
+            <label class="label">Details</label>
+            <span class="has-text">${store.details}</span>
+        </div>
+
+    </div>
+  </div>
+  <footer class="card-footer">
+    ${store.contact ? '<p class="card-footer-item"><i class="fa fa-phone fa-fw" aria-hidden="true"> </i> &nbsp;' + store.contact + '</p>' : ''}
+    ${store.whatsapp ? '<p class="card-footer-item"><i class="fab fa-whatsapp fa-fw"> </i>&nbsp;' + parseInt(store.whatsapp, 10) + '</p>' : ''}
+    ${store.website ? '<a class="card-footer-item" target="_blank" href="' + store.website + '">Website</a>' : ''}
+  </footer>
+</div>
+            `
+            return template;
+        }
+
+        function createPopUp(currentFeature) {
+            var popUps = document.getElementsByClassName('mapboxgl-popup');
+            /** Check if there is already a popup on the map and if so, remove it */
+            if (popUps[0]) popUps[0].remove();
+            console.log(currentFeature);
+            var popup = new mapboxgl.Popup({ closeOnClick: true })
+                .setLngLat(currentFeature.geometry.coordinates)
+                .setHTML(constructPopup(currentFeature.properties))
+                .addTo(map);
+        }
+
+
+        map.on('load', function () {
+            // Create an empty GeoJSON feature collection for drop-off locations
+            let nearestFeature = turf.featureCollection([]);
+            map.addSource("nearest", { type: "geojson", data: nearestFeature });
+            map.addLayer({
+                id: 'nearest-symbol',
+                type: 'symbol',
+                source: 'nearest',
+                layout: {
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true,
+                    'icon-image': 'fast-food-15',
+                }
+            });
+            fetchJson(storeGeo)
+                .then(result => {
+                    map.addSource("stores", { type: "geojson", data: result });
+                })
+            //set up draggables
+            setUpDraggables();
+            setUpDraggableMarker();
+
+
+            //set up draggable to respond to geocoder search
+            geocoder.on("result", ev => {
+                closePopups();
+                const resultLon = ev.result.geometry.coordinates[0];
+                const resultLat = ev.result.geometry.coordinates[1];
+                isoAppData.origins.a = [resultLon, resultLat];
+                // eslint-disable-next-line no-use-before-define
+                originA.setLngLat(isoAppData.origins.a);
+                // eslint-disable-next-line no-use-before-define
+                updateDraggableIso(isoAppData.origins.a);
+            });
+
+            map.on("click", "nearest-symbol", function (e) {
+                let clickedPoint = e.features[0];
+                createPopUp(clickedPoint);
+            });
+        });
+
+    </script>
+</body>
+
+</html>
